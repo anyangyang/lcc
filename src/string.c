@@ -1,5 +1,12 @@
 #include "c.h"
 
+/**
+ * string.c 文件中实现的函数有点类似常量池
+ * 传入一个字符串会判断其是否已经存在：
+ * 如果已经存在就是直接返回这个字符串在常量池中的地址
+ * 如果不存在就将其放入到常量池中，返回存放的地址
+ * ps：为了增加字符串搜索的效率，这里使用了"拉链法"解决冲突的 hash 算法
+ */
 static char rcsid[] = "$Id$";
 
 static struct string {
@@ -64,6 +71,9 @@ static int scatter[] = {	/* map characters to random values */
 char *string(const char *str) {
 	const char *s;
 
+	/**
+	 * 该 for 循环用于计算字符串的长度
+	 */
 	for (s = str; *s; s++)
 		;
 	return stringn(str, s - str);
@@ -85,6 +95,12 @@ char *stringd(long n) {
 		*--s = '-';
 	return stringn(s, str + sizeof (str) - s);
 }
+
+/**
+ * param *str: 字符串首地址
+ * param len：需要复制的字符串长度
+ * ps：下面会用到用 拉链法方式解决冲突的 hash 算法
+ */
 char *stringn(const char *str, int len) {
 	int i;
 	unsigned int h;
@@ -93,8 +109,12 @@ char *stringn(const char *str, int len) {
 
 	assert(str);
 	for (h = 0, i = len, end = str; i > 0; i--)
-		h = (h<<1) + scatter[*(unsigned char *)end++];
-	h &= NELEMS(buckets)-1;
+		h = (h<<1) + scatter[*(unsigned char *)end++]; // 计算 hash 值
+	h &= NELEMS(buckets)-1;  // 计算当前字符串的 hash 值在 bucket 中的索引
+	/*
+	 * 下面这个 for 循环用来用来寻找是否已经存在一个相同的字符串，
+	 * 如果找到的话，直接返回该字符串的地址
+	 */
 	for (p = buckets[h]; p; p = p->link)
 		if (len == p->len) {
 			const char *s1 = str;
@@ -104,6 +124,8 @@ char *stringn(const char *str, int len) {
 					return p->str;
 			} while (*s1++ == *s2++);
 		}
+
+	// 下面这段函数就是在 hash bucket 对应的链表中新增一个字符串链表节点的过程
 	{
 		static char *next, *strlimit;
 		if (len + 1 >= strlimit - next) {
