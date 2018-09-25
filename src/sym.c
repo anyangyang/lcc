@@ -5,8 +5,11 @@ static char rcsid[] = "$Id$";
 
 #define equalp(x) v.x == p->sym.u.c.v.x
 
+/**
+ * 符号表的结构体定义
+ */
 struct table {
-	int level;
+	int level;  // 标识作用域
 	Table previous;
 	struct entry {
 		struct symbol sym;
@@ -26,10 +29,14 @@ Table identifiers = &ids;
 Table globals     = &ids;
 Table types       = &tys;
 Table labels;
-int level = GLOBAL;
+int level = GLOBAL;  // 全局变量 ，和对应的表一起表示一个作用域
 static int tempid;
 List loci, symbols;
 
+/**
+ * 初始化一个新的作用域符号表
+ * param arena： 新的符号表需要分配的内存大小
+ */
 Table newtable(int arena) {
 	Table new;
 
@@ -37,7 +44,17 @@ Table newtable(int arena) {
 	return new;
 }
 
+/**
+ * 新建嵌套作用域的符号表，链接到外层作用域的符号表
+ * param tp: 外层作用域符号表的指针
+ * param level： 嵌套作用域符号表的作用域等级
+ * return： 已经初始化完成的作用域符号表
+ */
 Table table(Table tp, int level) {
+	/**
+	 * func 定义在 c.h 中，是枚举中的一个元素，值为 1
+	 * 表示内存分配区的下表
+	 */
 	Table new = newtable(FUNC);
 	new->previous = tp;
 	new->level = level;
@@ -45,6 +62,7 @@ Table table(Table tp, int level) {
 		new->all = tp->all;
 	return new;
 }
+
 void foreach(Table tp, int lev, void (*apply)(Symbol, void *), void *cl) {
 	assert(tp);
 	while (tp && tp->level > lev)
@@ -60,10 +78,18 @@ void foreach(Table tp, int lev, void (*apply)(Symbol, void *), void *cl) {
 		src = sav;
 	}
 }
+
+/**
+ * 进入作用域，全局变量 level 递增
+ */
 void enterscope(void) {
 	if (++level == LOCAL)
 		tempid = 0;
 }
+/**
+ * 退出作用域，全局变量 level 递减
+ * 相应的 types（table）和 identifiers（table）也随之撤销
+ */
 void exitscope(void) {
 	rmtypes(level);
 	if (types->level == level)
