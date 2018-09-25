@@ -94,6 +94,9 @@ void *allocate(unsigned long n, unsigned a) {
 	 * freeblocks：空的分配区，缺省值 NULL
 	 */
 	while (n > ap->limit - ap->avail) {
+		/**
+		 * 在这里可以看到分配区链表的形成过程
+		 */
 		if ((ap->next = freeblocks) != NULL) {
 			freeblocks = freeblocks->next;
 			ap = ap->next;
@@ -101,7 +104,7 @@ void *allocate(unsigned long n, unsigned a) {
 			// 如果当前分配区的内存空间不够，且当前的内存分配区是最后一个分配区
 			// 那么需要重新申请一个内存分配区，用于内存分配，这里保证内存对齐
 			unsigned m = sizeof (union header) + n + roundup(10*1024, sizeof (union align));
-			ap->next = malloc(m);
+			ap->next = malloc(m);  // 分配空间，完成挂载
 			ap = ap->next;
 			if (ap == NULL) {  // 重新申请分配区内存空间失败
 				error("insufficient memory\n");
@@ -111,9 +114,7 @@ void *allocate(unsigned long n, unsigned a) {
 		}
 		ap->avail = (char *)((union header *)ap + 1); //新的分配区的开始地址
 		ap->next = NULL;
-		arena[a] = ap;   // 在 header 修改当前下标 a 指向的内存分配区
-		// TODO question：原来下标 a 所指向的分配区的内存是在什么时候释放的，怎么释放的？
-		// ps：这里还有一个地方是需要注意的
+		arena[a] = ap;   // 在 header 修改当前下标 a 指向的内存分配区，将新分配的内存块添加到分配区链表的头部
 	}
 	ap->avail += n;  // 分配空间
 	return ap->avail - n;  // 返回在分配区分配的内存空间的起始地址
@@ -132,7 +133,11 @@ void deallocate(unsigned a) {
 	 * 内存释放第一步：将下标 a 指向的分配区块作为链表的一个节点添加到 freeblocks 指向的链表上
 	 */
 	arena[a]->next = freeblocks;
+	/*
+	 * first[a] 是分配区的 header 节点，他指向 arana[a] ,所以现在 freeblocks 作为头结点指向 arena[a]
+	 */
 	freeblocks = first[a].next;
+	// first[a] 作为头结点被重新初始化为 NULL，等待被重新分配
 	first[a].next = NULL;
 	arena[a] = &first[a];
 }
