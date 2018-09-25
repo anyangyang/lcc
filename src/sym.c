@@ -223,7 +223,7 @@ Symbol findlabel(int lab) {
 }
 
 /**
- * 常量表
+ * 常量
  */
 Symbol constant(Type ty, Value v) {
 	struct entry *p;
@@ -273,6 +273,10 @@ Symbol intconst(int n) {
 	v.i = n;
 	return constant(inttype, v);
 }
+
+/**
+ * 变量
+ */
 Symbol genident(int scls, Type ty, int lev) {
 	Symbol p;
 

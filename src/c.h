@@ -28,7 +28,7 @@
 #define __STDC__
 #endif
 #endif
-#define NELEMS(a) ((int)(sizeof (a)/sizeof ((a)[0])))
+#define NELEMS(a) ((int)(sizeof (a)/sizeof ((a)[0])))  // 计算数组的长度
 #undef roundup
 #define roundup(x,n) (((x)+((n)-1))&(~((n)-1)))
 #define mkop(op,ty) (specific((op) + ttob(ty)))
@@ -36,6 +36,9 @@
 #define extend(x,ty) ((x)&(1<<(8*(ty)->size-1)) ? (x)|((~0UL)<<(8*(ty)->size-1)) : (x)&ones(8*(ty)->size))
 #define ones(n) ((n)>=8*sizeof (unsigned long) ? ~0UL : ~((~0UL)<<(n)))
 
+/**
+ * 类型断言
+ */
 #define isqual(t)     ((t)->op >= CONST)
 #define unqual(t)     (isqual(t) ? (t)->type : (t))
 
@@ -228,7 +231,7 @@ struct code {
 		struct {
 			Coordinate src;
 			int point;
-		} point; 
+		} point;
 		Node forest;
 		struct {
 			Symbol sym;
@@ -323,11 +326,19 @@ enum {
 	RIGHT=42<<4,
 	FIELD=43<<4
 };
+
+/*
+ * 类型的定义
+ * for example： int *p
+ * 操作符：*p
+ * 操作数：int
+ * 含义：一个指针 p，指向 int 类型变量
+ */
 struct type {
-	int op;
-	Type type;
-	int align;
-	int size;
+	int op;  // 存放整型的操作符编码
+	Type type; // 存放类型操作数
+	int align; // 类型的对齐字节数
+	int size; // 该类型对象的大小
 	union {
 		Symbol sym;
 		struct {
@@ -597,4 +608,3 @@ extern Type qual(int, Type);
 extern void rmtypes(int);
 extern int ttob(Type);
 extern int variadic(Type);
-
