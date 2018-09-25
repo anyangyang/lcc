@@ -91,7 +91,7 @@ void enterscope(void) {
  * 相应的 types（table）和 identifiers（table）也随之撤销
  */
 void exitscope(void) {
-	rmtypes(level);
+	rmtypes(level);  // 带标记带类型，从类型缓冲中移除
 	if (types->level == level)
 		types = types->previous;
 	if (identifiers->level == level) {
@@ -106,12 +106,22 @@ void exitscope(void) {
 		}
 		identifiers = identifiers->previous;
 	}
-	assert(level >= GLOBAL);
+	assert(level >= GLOBAL);  // 验证全局作用域不能被移除
 	--level;
 }
+
+/**
+ * 给给定的 name 分配一个符号，并将该符号加入到到给定作用域值对应的符号表中
+ * param name： 给定的 name
+ * param level： name 对应的 Symbol 的 scope
+ * param arena： symbol 的成员字段 entry 的大小
+ * return： 新增加的符号的地址
+ */
 Symbol install(const char *name, Table *tpp, int level, int arena) {
 	Table tp = *tpp;
 	struct entry *p;
+	// HASHSIZE 定义在当前文件中，表示 table 中 entry 的数量
+	// 计算当前 name 在 table bucket 位置
 	unsigned h = (unsigned long)name&(HASHSIZE-1);
 
 	assert(level == 0 || level >= tp->level);
@@ -119,13 +129,17 @@ Symbol install(const char *name, Table *tpp, int level, int arena) {
 		tp = *tpp = table(tp, level);
 	NEW0(p, arena);
 	p->sym.name = (char *)name;
-	p->sym.scope = level;
-	p->sym.up = tp->all;
+	p->sym.scope = level;  // 当前 name 的作用域
+	p->sym.up = tp->all;   // 在 all 所代表的 链表中加入一个节点
 	tp->all = &p->sym;
-	p->link = tp->buckets[h];
+	p->link = tp->buckets[h]; //在 table 的 hashTable 对应 bucket 的链表上加上一个 entry
 	tp->buckets[h] = p;
 	return &p->sym;
 }
+
+/**
+ * 将 name 对应的节点从 src_table 迁移到 dest_table
+ */
 Symbol relocate(const char *name, Table src, Table dst) {
 	struct entry *p, **q;
 	Symbol *r;
@@ -156,6 +170,11 @@ Symbol relocate(const char *name, Table src, Table dst) {
 	dst->all = &p->sym;
 	return &p->sym;
 }
+
+/**
+ * 给定一个 name，从指定的标号表中开始搜索，如果在当前节点搜索不到
+ * 就从当前符号表的上一个作用域的符号表进行搜素
+ */
 Symbol lookup(const char *name, Table tp) {
 	struct entry *p;
 	unsigned h = (unsigned long)name&(HASHSIZE-1);
@@ -168,12 +187,21 @@ Symbol lookup(const char *name, Table tp) {
 	while ((tp = tp->previous) != NULL);
 	return NULL;
 }
+
+/**
+ * 标号管理： 编译器产生的标号和源程序中的标号的内部表示统一采取整数的方式进行管理
+ */
 int genlabel(int n) {
-	static int label = 1;
+	static int label = 1;  // 静态变量 ---> 全局变量
 
 	label += n;
 	return label - n;
 }
+/**
+ * 在 label_table 中搜索 label（int）
+ * 如果搜索到的话，返回 lable 对应的 symbol 地址
+ * 如果搜索不到，就创建一个新的 symbol，挂在链表上
+ */
 Symbol findlabel(int lab) {
 	struct entry *p;
 	unsigned h = lab&(HASHSIZE-1);
@@ -193,6 +221,10 @@ Symbol findlabel(int lab) {
 	(*IR->defsymbol)(&p->sym);
 	return &p->sym;
 }
+
+/**
+ * 常量表
+ */
 Symbol constant(Type ty, Value v) {
 	struct entry *p;
 	unsigned h = v.u&(HASHSIZE-1);
@@ -244,17 +276,20 @@ Symbol intconst(int n) {
 Symbol genident(int scls, Type ty, int lev) {
 	Symbol p;
 
-	NEW0(p, lev >= LOCAL ? FUNC : PERM);
-	p->name = stringd(genlabel(1));
+	NEW0(p, lev >= LOCAL ? FUNC : PERM);  // lev 表示在哪个分配区进行分配
+	p->name = stringd(genlabel(1)); // 生成标号，并从 string pool 获取对应字符串首地址
 	p->scope = lev;
-	p->sclass = scls;
+	p->sclass = scls;  // 扩展信息
 	p->type = ty;
 	p->generated = 1;
 	if (lev == GLOBAL)
-		(*IR->defsymbol)(p);
+		(*IR->defsymbol)(p); //通知编译器后端，这些常量可以出现在 dag（无环路有向图）中
 	return p;
 }
 
+/**
+ * 临时变量
+ */
 Symbol temporary(int scls, Type ty) {
 	Symbol p;
 
@@ -267,6 +302,10 @@ Symbol temporary(int scls, Type ty) {
 	p->generated = 1;
 	return p;
 }
+/**
+ * 编译器产生的临时变量，比如为了腾空寄存器
+ * 由于不知道这个临时变量的类型，所以不能直接调用 temporaray
+ */
 Symbol newtemp(int sclass, int tc, int size) {
 	Symbol p = temporary(sclass, btot(tc, size));
 
