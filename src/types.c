@@ -752,4 +752,3 @@ char *typestring(Type ty, char *str) {
 	}
 	assert(0); return 0;
 }
-
