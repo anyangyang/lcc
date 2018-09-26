@@ -4,7 +4,7 @@
 
 static char rcsid[] = "$Id$";
 
-#define MAXTOKEN 32
+#define MAXTOKEN 32  // 除标识符、字符串、数字常亮外，其他所有单词的长度不超过 32 个字节
 
 enum { BLANK=01,  NEWLINE=02, LETTER=04,
        DIGIT=010, HEX=020,    OTHER=040 };
@@ -156,19 +156,24 @@ static void ppnumber(char *);
 int gettok(void) {
 	for (;;) {
 		register unsigned char *rcp = cp;
-		while (map[*rcp]&BLANK)
+		while (map[*rcp]&BLANK) // 忽略空白字符
 			rcp++;
+
+    // 验证缓冲区至少包含一个字符，如果缓冲区少于 32 个字节，那么就需要读入数据
 		if (limit - rcp < MAXTOKEN) {
 			cp = rcp;
 			fillbuf();
 			rcp = cp;
 		}
+    // 记录当前单词的坐标
 		src.file = file;
 		src.x = (char *)rcp - line;
 		src.y = lineno;
 		cp = rcp + 1;
 		switch (*rcp++) {
-		case '/': if (*rcp == '*') {
+		case '/':
+        // 消除注释
+        if (*rcp == '*') {
 			  	int c = 0;
 			  	for (rcp++; *rcp != '/' || c != '*'; )
 			  		if (map[*rcp]&NEWLINE) {
@@ -208,7 +213,7 @@ int gettok(void) {
 		case '+': return *rcp == '+' ? cp++, INCR   : '+';
 		case ';': case ',': case ':':
 		case '*': case '~': case '%': case '^': case '?':
-		case '[': case ']': case '{': case '}': case '(': case ')': 
+		case '[': case ']': case '{': case '}': case '(': case ')':
 			return rcp[-1];
 		case '\n': case '\v': case '\r': case '\f':
 			nextline();
