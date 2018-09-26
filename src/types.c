@@ -6,6 +6,9 @@ static char rcsid[] = "$Id$";
 static Field isfield(const char *, Field);
 static Type type(int, Type, int, int, void *);
 
+/**
+ * 为拉链法解决冲突的 hash 算法定义
+ */
 static struct entry {
 	struct type type;
 	struct entry *link;
@@ -65,18 +68,25 @@ static Type xxinit(int op, char *name, Metrics m) {
 	}
 	return ty;
 }
-static Type type(int op, Type ty, int size, int align, void *sym) {
-	unsigned h = (op^((unsigned long)ty>>3))
-&(NELEMS(typetable)-1);
-	struct entry *tn;
 
+/**
+ * 在 typeTable 中搜索指定 type
+ * 如果没有搜索到，就创建一个 type，挂载到 typeTable 的某个 bucket 所在的链表中
+ * ps: 总是为 op 是函数或者 size 为 0 的数组创建新类型
+ */
+static Type type(int op, Type ty, int size, int align, void *sym) {
+	// 计算 hash 索引
+	unsigned h = (op^((unsigned long)ty>>3))&(NELEMS(typetable)-1);
+	struct entry *tn;
+	// 根据 hash 索引在 bucket 中搜索
 	if (op != FUNCTION && (op != ARRAY || size > 0))
 		for (tn = typetable[h]; tn; tn = tn->link)
 			if (tn->type.op    == op   && tn->type.type  == ty
 			&&  tn->type.size  == size && tn->type.align == align
 			&&  tn->type.u.sym == sym)
-				return &tn->type;
-	NEW0(tn, PERM);
+				return &tn->type;   // 如果搜索到，直接返回
+	// 创建一个类型，链接到 typetable 中
+	NEW0(tn, PERM);  // 在 PERM 分配区分配内存
 	tn->type.op = op;
 	tn->type.type = ty;
 	tn->type.size = size;
@@ -86,11 +96,15 @@ static Type type(int op, Type ty, int size, int align, void *sym) {
 	typetable[h] = tn;
 	return &tn->type;
 }
+
+/**
+ * 初始化已知的类型
+ */
 void type_init(int argc, char *argv[]) {
 	static int inited;
 	int i;
 
-	if (inited)
+	if (inited)  // 标记位，用来标记是否已经完成初始化
 		return;
 	inited = 1;
 	if (!IR)
@@ -169,6 +183,10 @@ void type_init(int argc, char *argv[]) {
 	}
 #undef xx
 }
+
+/**
+ * 在 exitScope 时，需要删除 typetable 中缓存的类型
+ */
 void rmtypes(int lev) {
 	if (maxlevel >= lev) {
 		int i;
@@ -752,4 +770,3 @@ char *typestring(Type ty, char *str) {
 	}
 	assert(0); return 0;
 }
-
