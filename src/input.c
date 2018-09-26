@@ -6,11 +6,11 @@ static void pragma(void);
 static void resynch(void);
 
 static int bsize;
-static unsigned char buffer[MAXLINE+1 + BUFSIZE+1];
+static unsigned char buffer[MAXLINE+1 + BUFSIZE+1]; // MAXLINE：512 BUFSIZE：4096
 unsigned char *cp;	/* current input character */
 char *file;		/* current input file name */
 char *firstfile;	/* first input file */
-unsigned char *limit;	/* points to last character + 1 */
+unsigned char *limit;	/* points to last character + 1：指向缓存区末尾字符 的后一个字符 */
 char *line;		/* current line */
 int lineno;		/* line number of current line */
 
@@ -59,13 +59,17 @@ void fillbuf(void) {
 	limit = &buffer[MAXLINE+1+bsize];
 	*limit = '\n';
 }
+
+/**
+ * 词法分析从这里开始
+ */
 void input_init(int argc, char *argv[]) {
 	static int inited;
 
 	if (inited)
-		return;
-	inited = 1;
-	main_init(argc, argv);
+		return;  // 验证是否正在初始化
+	inited = 1;  //
+	main_init(argc, argv); // 根据命令，初始化编译条件
 	limit = cp = &buffer[MAXLINE+1];
 	bsize = -1;
 	lineno = 0;
@@ -93,7 +97,7 @@ static void pragma(void) {
 			if ((t = gettok()) == ID && tsym) {
 				tsym->ref++;
 				use(tsym, src);
-			}	
+			}
 		}
 }
 
@@ -143,4 +147,3 @@ static void resynch(void) {
 			} else
 				break;
 }
-
