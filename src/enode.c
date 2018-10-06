@@ -1,5 +1,8 @@
 #include "c.h"
 
+/**
+ * enode.c 类型推导
+ */
 static char rcsid[] = "$Id$";
 
 static Tree addtree(int, Tree, Tree);
@@ -152,7 +155,7 @@ static Tree addtree(int op, Tree l, Tree r) {
 	if (isarith(l->type) && isarith(r->type)) {
 		ty = binary(l->type, r->type);
 		l = cast(l, ty);
-		r = cast(r, ty);		
+		r = cast(r, ty);
 	} else if (isptr(l->type) && isint(r->type))
 		return addtree(ADD, r, l);
 	else if (  isptr(r->type) && isint(l->type)
@@ -197,6 +200,7 @@ Tree cnsttree(Type ty, ...) {
 }
 
 Tree consttree(int n, Type ty) {
+	// 如果当前类型是数组，先将其转换成指针类型
 	if (isarray(ty))
 		ty = atop(ty);
 	else assert(isint(ty));
@@ -234,6 +238,8 @@ static int isnullptr(Tree e) {
 	     || ty->op == UNSIGNED && e->u.v.u == 0
 	     || isvoidptr(ty)      && e->u.v.p == NULL);
 }
+
+
 Tree eqtree(int op, Tree l, Tree r) {
 	Type xty = unqual(l->type), yty = unqual(r->type);
 
@@ -290,6 +296,10 @@ Type assign(Type xty, Tree e) {
 	}
 	return NULL;
 }
+
+/**
+ * 构造赋值表达式的 AST
+ */
 Tree asgntree(int op, Tree l, Tree r) {
 	Type aty, ty;
 
@@ -339,6 +349,10 @@ Tree asgntree(int op, Tree l, Tree r) {
 			idtree(l->u.sym));
 	return tree(mkop(op,ty), ty, l, r);
 }
+
+/**
+ * 构造条件表达式的 AST
+ */
 Tree condtree(Tree e, Tree l, Tree r) {
 	Symbol t1;
 	Type ty, xty = l->type, yty = r->type;
@@ -421,6 +435,7 @@ Tree addrof(Tree p) {
 }
 
 /* andtree - construct tree for l [&& ||] r */
+
 static Tree andtree(int op, Tree l, Tree r) {
 	if (!isscalar(l->type) || !isscalar(r->type))
 		typeerror(op, l, r);
@@ -453,20 +468,25 @@ Tree bittree(int op, Tree l, Tree r) {
 	if (isint(l->type) && isint(r->type)) {
  		ty = binary(l->type, r->type);
 		l = cast(l, ty);
-		r = cast(r, ty);		
+		r = cast(r, ty);
 	} else
 		typeerror(op, l, r);
 	return simplify(op, ty, l, r);
 }
 
 /* multree - construct tree for l [* /] r */
+/**
+ * 构造乘法的 AST 节点
+ */
 static Tree multree(int op, Tree l, Tree r) {
 	Type ty = inttype;
 
+	// 判断是左节点和右节点是否为可进行算的类型
 	if (isarith(l->type) && isarith(r->type)) {
-		ty = binary(l->type, r->type);
+		ty = binary(l->type, r->type);   // 判断计算结果的类型
+		// 根据结果类型对表达式孩子节点进行校验，
 		l = cast(l, ty);
-		r = cast(r, ty);		
+		r = cast(r, ty);
 	} else
 		typeerror(op, l, r);
 	return simplify(op, ty, l, r);
@@ -493,7 +513,7 @@ static Tree subtree(int op, Tree l, Tree r) {
 	if (isarith(l->type) && isarith(r->type)) {
 		ty = binary(l->type, r->type);
 		l = cast(l, ty);
-		r = cast(r, ty);		
+		r = cast(r, ty);
 	} else if (isptr(l->type) && !isfunc(l->type->type) && isint(r->type)) {
 		ty = unqual(l->type);
 		n = unqual(ty->type)->size;

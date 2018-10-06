@@ -2,7 +2,7 @@
 
 static char rcsid[] = "$Id$";
 
-int where = STMT;
+int where = STMT;  // 分配区的下标
 static int warn;
 static int nid = 1;		/* identifies trees & nodes in debugging output */
 static struct nodeid {
@@ -12,10 +12,14 @@ static struct nodeid {
 
 static void printtree1(Tree, int, int);
 
+/**
+ * Tree 可以表示 AST 的一个节点
+ * 分配一个节点
+ */
 Tree tree(int op, Type type, Tree left, Tree right) {
 	Tree p;
 
-	NEW0(p, where);
+	NEW0(p, where);  // 分配内存空间
 	p->op = op;
 	p->type = type;
 	p->kids[0] = left;
@@ -23,12 +27,15 @@ Tree tree(int op, Type type, Tree left, Tree right) {
 	return p;
 }
 
+/**
+ * param f: 分析函数
+ */
 Tree texpr(Tree (*f)(int), int tok, int a) {
 	int save = where;
 	Tree p;
 
 	where = a;
-	p = (*f)(tok);
+	p = (*f)(tok);  // 分析函数进行分析
 	where = save;
 	return p;
 }
@@ -75,7 +82,7 @@ static Tree root1(Tree p) {
 			return p->kids[0]->kids[1];
 		p = tree(RIGHT, p->type, root1(p->kids[0]), root1(p->kids[1]));
 		return p->kids[0] || p->kids[1] ? p : (Tree)0;
-	case EQ:  case NE:  case GT:   case GE:  case LE:  case LT: 
+	case EQ:  case NE:  case GT:   case GE:  case LE:  case LT:
 	case ADD: case SUB: case MUL:  case DIV: case MOD:
 	case LSH: case RSH: case BAND: case BOR: case BXOR:
 		if (warn++ == 0)

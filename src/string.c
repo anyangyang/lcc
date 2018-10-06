@@ -78,6 +78,10 @@ char *string(const char *str) {
 		;
 	return stringn(str, s - str);
 }
+
+/**
+ * 将 long 型的数字整理成字符串保存到常量池中
+ */
 char *stringd(long n) {
 	char str[25], *s = str + sizeof (str);
 	unsigned long m;

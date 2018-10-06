@@ -26,4 +26,3 @@ void apply(List event, void *arg1, void *arg2) {
 		} while (lp != event);
 	}
 }
-

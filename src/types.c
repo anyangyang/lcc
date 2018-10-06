@@ -1,14 +1,14 @@
 #include "c.h"
 #include <float.h>
 
+/**
+ * 这里的类型系统需要好好验证一下，到时候需要回归阅读一下
+ */
 static char rcsid[] = "$Id$";
 
 static Field isfield(const char *, Field);
 static Type type(int, Type, int, int, void *);
 
-/**
- * 为拉链法解决冲突的 hash 算法定义
- */
 static struct entry {
 	struct type type;
 	struct entry *link;
@@ -39,6 +39,9 @@ Type unsignedptr;		/* unsigned type to hold void* */
 Type signedptr;			/* signed type to hold void* */
 Type widechar;			/* unsigned type that represents wchar_t */
 
+/**
+ * 在全局符号表初始化了一些数据
+ */
 static Type xxinit(int op, char *name, Metrics m) {
 	Symbol p = install(string(name), &types, GLOBAL, PERM);
 	Type ty = type(op, 0, m.size, m.align, p);
@@ -70,23 +73,21 @@ static Type xxinit(int op, char *name, Metrics m) {
 }
 
 /**
- * 在 typeTable 中搜索指定 type
- * 如果没有搜索到，就创建一个 type，挂载到 typeTable 的某个 bucket 所在的链表中
- * ps: 总是为 op 是函数或者 size 为 0 的数组创建新类型
+ * 在 type_table 中搜索 type，如果找到就返回该 type 的地址，否则就重新创建一个挂载到 type_table
+ * 中，总是为 FUNCTION，或者 size 为 0 的 ARRAY 重新创建一个新的 type
  */
 static Type type(int op, Type ty, int size, int align, void *sym) {
-	// 计算 hash 索引
-	unsigned h = (op^((unsigned long)ty>>3))&(NELEMS(typetable)-1);
+	unsigned h = (op^((unsigned long)ty>>3))
+&(NELEMS(typetable)-1);
 	struct entry *tn;
-	// 根据 hash 索引在 bucket 中搜索
+
 	if (op != FUNCTION && (op != ARRAY || size > 0))
 		for (tn = typetable[h]; tn; tn = tn->link)
 			if (tn->type.op    == op   && tn->type.type  == ty
 			&&  tn->type.size  == size && tn->type.align == align
 			&&  tn->type.u.sym == sym)
-				return &tn->type;   // 如果搜索到，直接返回
-	// 创建一个类型，链接到 typetable 中
-	NEW0(tn, PERM);  // 在 PERM 分配区分配内存
+				return &tn->type;
+	NEW0(tn, PERM);
 	tn->type.op = op;
 	tn->type.type = ty;
 	tn->type.size = size;
@@ -98,13 +99,13 @@ static Type type(int op, Type ty, int size, int align, void *sym) {
 }
 
 /**
- * 初始化已知的类型
+ * 初始化 type
  */
 void type_init(int argc, char *argv[]) {
 	static int inited;
 	int i;
 
-	if (inited)  // 标记位，用来标记是否已经完成初始化
+	if (inited)
 		return;
 	inited = 1;
 	if (!IR)
@@ -184,9 +185,7 @@ void type_init(int argc, char *argv[]) {
 #undef xx
 }
 
-/**
- * 在 exitScope 时，需要删除 typetable 中缓存的类型
- */
+// 移除类型，目前找到用的地方是在 sym.c 退出作用域的那个方法中，用于消除相应的类型缓存
 void rmtypes(int lev) {
 	if (maxlevel >= lev) {
 		int i;
@@ -207,17 +206,29 @@ void rmtypes(int lev) {
 		}
 	}
 }
+
+/**
+ * 类型构造器，生成一个指针类型的 type 结构体
+ */
 Type ptr(Type ty) {
 	return type(POINTER, ty, IR->ptrmetric.size,
 		IR->ptrmetric.align, pointersym);
 }
+
+/**
+ * 如果是指针或者枚举，就需要获取最终的类型
+ */
 Type deref(Type ty) {
-	if (isptr(ty))
-		ty = ty->type;
+	if (isptr(ty))    // 判断是否是指针类型(point)
+		ty = ty->type;  // ty 执行指针类型(表示什么类型的指针)
 	else
 		error("type error: %s\n", "pointer expected");
 	return isenum(ty) ? unqual(ty)->type : ty;
 }
+
+/**
+ * 类型构造器，生成 array 类型的构造器
+ */
 Type array(Type ty, int n, int a) {
 	assert(ty);
 	if (isfunc(ty)) {
@@ -240,12 +251,18 @@ Type array(Type ty, int n, int a) {
 	return type(ARRAY, ty, n*ty->size,
 		a ? a : ty->align, NULL);
 }
+
+/**
+ * array to piont
+ */
 Type atop(Type ty) {
 	if (isarray(ty))
 		return ptr(ty->type);
 	error("type error: %s\n", "array expected");
 	return ptr(ty);
 }
+
+
 Type qual(int op, Type ty) {
 	if (isarray(ty))
 		ty = type(ARRAY, qual(op, ty->type), ty->size,
@@ -264,6 +281,10 @@ Type qual(int op, Type ty) {
 	}
 	return ty;
 }
+
+/**
+ * 函数构造器
+ */
 Type func(Type ty, Type *proto, int style) {
 	if (ty && (isarray(ty) || isfunc(ty)))
 		error("illegal return type `%t'\n", ty);
@@ -272,6 +293,11 @@ Type func(Type ty, Type *proto, int style) {
 	ty->u.f.oldstyle = style;
 	return ty;
 }
+
+/**
+ * 获取返回值类型，函数的 Type 返回值类型在 type 域中
+ * 如果不是函数，则返回 inttype
+ */
 Type freturn(Type ty) {
 	if (isfunc(ty))
 		return ty->type;
@@ -287,6 +313,11 @@ int variadic(Type ty) {
 	}
 	return 0;
 }
+
+
+/**
+ * 结构体构造器
+ */
 Type newstruct(int op, char *tag) {
 	Symbol p;
 
@@ -308,6 +339,8 @@ Type newstruct(int op, char *tag) {
 	p->src = src;
 	return p->type;
 }
+
+
 Field newfield(char *name, Type ty, Type fty) {
 	Field p, *q = &ty->u.sym->u.s.flist;
 
@@ -328,6 +361,10 @@ Field newfield(char *name, Type ty, Type fty) {
 	}								/* omit */
 	return p;
 }
+
+/**
+ * 验证两种类型是否相等，如果两种类型兼容，返回值为 1，否则返回值为 0
+ */
 int eqtype(Type ty1, Type ty2, int ret) {
 	if (ty1 == ty2)
 		return 1;
@@ -446,6 +483,7 @@ Type compose(Type ty1, Type ty2) {
 	}
 	assert(0); return NULL;
 }
+
 int ttob(Type ty) {
 	switch (ty->op) {
 	case CONST: case VOLATILE: case CONST+VOLATILE:

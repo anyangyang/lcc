@@ -28,7 +28,7 @@
 #define __STDC__
 #endif
 #endif
-#define NELEMS(a) ((int)(sizeof (a)/sizeof ((a)[0])))  // 计算数组的长度
+#define NELEMS(a) ((int)(sizeof (a)/sizeof ((a)[0])))
 #undef roundup
 #define roundup(x,n) (((x)+((n)-1))&(~((n)-1)))
 #define mkop(op,ty) (specific((op) + ttob(ty)))
@@ -36,9 +36,6 @@
 #define extend(x,ty) ((x)&(1<<(8*(ty)->size-1)) ? (x)|((~0UL)<<(8*(ty)->size-1)) : (x)&ones(8*(ty)->size))
 #define ones(n) ((n)>=8*sizeof (unsigned long) ? ~0UL : ~((~0UL)<<(n)))
 
-/**
- * 类型断言
- */
 #define isqual(t)     ((t)->op >= CONST)
 #define unqual(t)     (isqual(t) ? (t)->type : (t))
 
@@ -202,7 +199,7 @@ enum {
 #undef gop
 #undef op
 enum { CODE=1, BSS, DATA, LIT };
-enum { PERM=0, FUNC, STMT };
+enum { PERM=0, FUNC, STMT };  // FUNC 标识内存分配区的下标
 struct list {
 	void *x;
 	List link;
@@ -253,13 +250,17 @@ struct swtch {
 	long *values;
 	Symbol *labels;
 };
+
+/**
+ * 符号表中的符号定义
+ */
 struct symbol {
-	char *name;
-	int scope;
-	Coordinate src;
-	Symbol up;
-	List uses;
-	int sclass;
+	char *name;  // 源代码中使用的标识符名称
+	int scope;  // scope 说明了符号是常量，标号，全局变量，参数或者局部变量
+	Coordinate src;  // src 指明了该符号的坐标，哪个文件、哪一行、哪一列
+	Symbol up; // 单向链表的上一个节点
+	List uses; // 记录当前变量所有被用到的地方，可以在编译命令中指定是否保存
+	int sclass;  // 保存扩展信息：AUTO、REGISTER、STATIC、EXTERN、TYPEDEF
 	unsigned structarg:1;
 
 	unsigned addressed:1;
@@ -267,7 +268,7 @@ struct symbol {
 	unsigned temporary:1;
 	unsigned generated:1;
 	unsigned defined:1;
-	Type type;
+	Type type;  // 保存了变量，函数，常量，结构，联合，枚举等信息
 	float ref;
 	union {
 		struct {
@@ -305,12 +306,17 @@ struct symbol {
 	} u;
 	Xsymbol x;
 };
+
+// symbol 中的成员字段 scope 的枚举定义
 enum { CONSTANTS=1, LABELS, GLOBAL, PARAM, LOCAL };
+
+// 抽象语法树的节点定义
 struct tree {
-	int op;
-	Type type;
-	Tree kids[2];
-	Node node;
+	int op;  // op 表示操作符
+	Type type;  // 表示运行时该节点计算结果的类型，在计算过程中可能会出现自动类型转换的情况
+	Tree kids[2]; // 操作数
+	Node node;  // 用于构成有向无环图的节点（有向无环图用于编译器后端）
+	// union域用于保存当前操作符的附加信息
 	union {
 		Value v;
 		Symbol sym;
@@ -327,20 +333,23 @@ enum {
 	FIELD=43<<4
 };
 
-/*
- * 类型的定义
- * for example： int *p
- * 操作符：*p
- * 操作数：int
- * 含义：一个指针 p，指向 int 类型变量
+/**
+ * type 类型系统
+ * for example： int *t 表示：
+ *			t 是一个指向 int 的指针
  */
 struct type {
-	int op;  // 存放整型的操作符编码
-	Type type; // 存放类型操作数
-	int align; // 类型的对齐字节数
-	int size; // 该类型对象的大小
+	/**
+	 * op 存放整型类型的操作符编码
+	 * CHAR LONG ARRAY FUNCTION INT ENUM STRUCT CONST
+	 * UNSIGNED FLOAT UNION VOLATILE SHORT DOUBLE POINTER VOID
+	 */
+	int op;
+	Type type;  // 操作数
+	int align;  // 当前类型的对齐字节数
+	int size;   // 当前类型的对象的大小， ps：代码生成的接口规定，size 必须是 align 的整数倍
 	union {
-		Symbol sym;
+		Symbol sym;  // 当前 op 的在符号表的入口
 		struct {
 			unsigned oldstyle:1;
 			Type *proto;
@@ -379,7 +388,7 @@ extern int lineno;
 extern int t;
 extern char *token;
 extern Symbol tsym;
-extern Coordinate src;
+extern Coordinate src;  //全局变量
 extern int Aflag;
 extern int Pflag;
 extern Symbol YYnull;
@@ -394,14 +403,15 @@ extern int needconst;
 extern int explicitCast;
 extern struct code codehead;
 extern Code codelist;
+
 extern Table stmtlabs;
 extern float density;
 extern Table constants;
-extern Table externals;
-extern Table globals;
-extern Table identifiers;
-extern Table labels;
-extern Table types;
+extern Table externals; // 存放声明了 extern 的标识符
+extern Table globals;  // 是 identifiers 的一部分，保存了具有文件作用域的标识符
+extern Table identifiers;   // 保存一般标识符
+extern Table labels;  // 编译器内部定义的标号
+extern Table types; // 编译器内部定义的类型
 extern int level;
 
 extern List loci, symbols;

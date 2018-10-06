@@ -4,11 +4,14 @@
 
 static char rcsid[] = "$Id$";
 
-#define MAXTOKEN 32  // 除标识符、字符串、数字常亮外，其他所有单词的长度不超过 32 个字节
+#define MAXTOKEN 32  // 除标识符、字符串、数字常量外，其他所有单词的长度不超过 32 个字节
 
 enum { BLANK=01,  NEWLINE=02, LETTER=04,
        DIGIT=010, HEX=020,    OTHER=040 };
 
+/**
+ * 判断读入的 ascii 对应的十进制数作为 map 数组的下表
+ */
 static unsigned char map[256] = { /* 000 nul */	0,
 				   /* 001 soh */	0,
 				   /* 002 stx */	0,
@@ -136,7 +139,7 @@ static unsigned char map[256] = { /* 000 nul */	0,
 				   /* 174 |   */	OTHER,
 				   /* 175 }   */	OTHER,
 				   /* 176 ~   */	OTHER, };
-static struct symbol tval;
+static struct symbol tval;  // 为 gettok 提供常量类型
 static char cbuf[BUFSIZE+1];
 static unsigned int wcbuf[BUFSIZE+1];
 
@@ -155,11 +158,15 @@ static void ppnumber(char *);
 
 int gettok(void) {
 	for (;;) {
+    /*
+     * cp 属于全局变量，会放在全局变量区中，
+     * rcp 属于局部变量，会存放在寄存器中，减少一些读取内存的时间，增加效率
+     */
 		register unsigned char *rcp = cp;
 		while (map[*rcp]&BLANK) // 忽略空白字符
 			rcp++;
 
-    // 验证缓冲区至少包含一个字符，如果缓冲区少于 32 个字节，那么就需要读入数据
+    // 验证缓冲区至少包含可用的单词，如果缓冲区少于 32 个字节，那么就需要读入数据
 		if (limit - rcp < MAXTOKEN) {
 			cp = rcp;
 			fillbuf();
@@ -172,17 +179,17 @@ int gettok(void) {
 		cp = rcp + 1;
 		switch (*rcp++) {
 		case '/':
-        // 消除注释
+        // 消除 /* */ 类型的注释
         if (*rcp == '*') {
-			  	int c = 0;
+			  	int c = 0;  // c 用于记录当前 rcp 的前一个字符
 			  	for (rcp++; *rcp != '/' || c != '*'; )
-			  		if (map[*rcp]&NEWLINE) {
-			  			if (rcp < limit)
+			  		if (map[*rcp]&NEWLINE) {   // 读到换行符
+			  			if (rcp < limit)  // 缓冲区不为空
 			  				c = *rcp;
 			  			cp = rcp + 1;
-			  			nextline();
+			  			nextline();   // 填充缓冲区
 			  			rcp = cp;
-			  			if (rcp == limit)
+			  			if (rcp == limit)  // 缓冲区空
 			  				break;
 			  		} else
 			  			c = *rcp++;
@@ -214,7 +221,7 @@ int gettok(void) {
 		case ';': case ',': case ':':
 		case '*': case '~': case '%': case '^': case '?':
 		case '[': case ']': case '{': case '}': case '(': case ')':
-			return rcp[-1];
+			return rcp[-1];  // 返回当前读入的字符
 		case '\n': case '\v': case '\r': case '\f':
 			nextline();
 			if (cp == limit) {
@@ -223,6 +230,10 @@ int gettok(void) {
 			}
 			continue;
 
+    /**
+     * 开始识别关键字和变量
+     * 首先是识别 if 关键子和 int 变量
+     */
 		case 'i':
 			if (rcp[0] == 'f'
 			&& !(map[rcp[1]]&(DIGIT|LETTER))) {
@@ -233,10 +244,10 @@ int gettok(void) {
 			&&  rcp[1] == 't'
 			&& !(map[rcp[2]]&(DIGIT|LETTER))) {
 				cp = rcp + 2;
-				tsym = inttype->u.sym;
+				tsym = inttype->u.sym; // 当前单词的 Symbol，是一个常量
 				return INT;
 			}
-			goto id;
+			goto id;  // 如果不满足上面的规则，那么表示就是一个变量
 		case 'h': case 'j': case 'k': case 'm': case 'n': case 'o':
 		case 'p': case 'q': case 'x': case 'y': case 'z':
 		case 'A': case 'B': case 'C': case 'D': case 'E': case 'F':
@@ -245,19 +256,24 @@ int gettok(void) {
 		case 'S': case 'T': case 'U': case 'V': case 'W': case 'X':
 		case 'Y': case 'Z':
 		id:
-			if (limit - rcp < MAXLINE) {
-				cp = rcp - 1;
+			if (limit - rcp < MAXLINE) { //填充缓冲区
+				cp = rcp - 1;   // 已经读入了一个字符，所以需要将 这个字符回退，然后再填充缓冲区
 				fillbuf();
-				rcp = ++cp;
+				rcp = ++cp;  // 因为已经读入了一个字符，才会走到这里，所以把读入的那个字符加上去
 			}
 			assert(cp == rcp);
-			token = (char *)rcp - 1;
+			token = (char *)rcp - 1; // 记录当前变量字符在缓冲区的首地址
 			while (map[*rcp]&(DIGIT|LETTER))
 				rcp++;
-			token = stringn(token, (char *)rcp - token);
-			tsym = lookup(token, identifiers);
+			token = stringn(token, (char *)rcp - token);  //将读入的变量的字符串保存到
+			tsym = lookup(token, identifiers);  // 加入到符号表中
 			cp = rcp;
 			return ID;
+
+    /**
+     * 数字的识别：float-constant, interge-constant, enumeration-constant(ID), character-constant
+     * interge-constant(十六进制，二进制，十进制数值常量)
+     */
 		case '0': case '1': case '2': case '3': case '4':
 		case '5': case '6': case '7': case '8': case '9': {
 			unsigned long n = 0;
@@ -266,8 +282,9 @@ int gettok(void) {
 				fillbuf();
 				rcp = ++cp;
 			}
-			assert(cp == rcp);
-			token = (char *)rcp - 1;
+			assert(cp == rcp);  // 这里的 cp 非常重要，cp 被指向开始的那个字符
+			token = (char *)rcp - 1;  // 记录当前变量字符在缓冲区的首地址
+      // 读取十六进制数
 			if (*token == '0' && (*rcp == 'x' || *rcp == 'X')) {
 				int d, overflow = 0;
 				while (*++rcp) {
@@ -279,7 +296,7 @@ int gettok(void) {
 						d = *rcp - 'A' + 10;
 					else
 						break;
-					if (n&~(~0UL >> 4))
+					if (n&~(~0UL >> 4)) // 判断是否溢出
 						overflow = 1;
 					else
 						n = (n<<4) + d;
@@ -288,10 +305,10 @@ int gettok(void) {
 					error("invalid hexadecimal constant `%S'\n", token, (char *)rcp-token);
 				cp = rcp;
 				tsym = icon(n, overflow, 16);
-			} else if (*token == '0') {
+			} else if (*token == '0') {  // 读取 8 进制数
 				int err = 0, overflow = 0;
 				for ( ; map[*rcp]&DIGIT; rcp++) {
-					if (*rcp == '8' || *rcp == '9')
+					if (*rcp == '8' || *rcp == '9') // 8 和 9 在八进制不应该出现
 						err = 1;
 					if (n&~(~0UL >> 3))
 						overflow = 1;
@@ -300,22 +317,23 @@ int gettok(void) {
 				}
 				if (*rcp == '.' || *rcp == 'e' || *rcp == 'E') {
 					cp = rcp;
-					tsym = fcon();
+					tsym = fcon();  // float 类型，fcon() 处理 . e E 的后缀
 					return FCON;
 				}
 				cp = rcp;
 				tsym = icon(n, overflow, 8);
 				if (err)
 					error("invalid octal constant `%S'\n", token, (char*)cp-token);
-			} else {
+			} else {  // 读取十进制
 				int overflow = 0;
 				for (n = *token - '0'; map[*rcp]&DIGIT; ) {
 					int d = *rcp++ - '0';
-					if (n > (ULONG_MAX - d)/10)
+					if (n > (ULONG_MAX - d)/10)  // ULONG_MAX 表示最大的无符号数，这里用作判断数字是否溢出
 						overflow = 1;
 					else
 						n = 10*n + d;
 				}
+        // 处理小数后缀
 				if (*rcp == '.' || *rcp == 'e' || *rcp == 'E') {
 					cp = rcp;
 					tsym = fcon();
@@ -329,10 +347,11 @@ int gettok(void) {
 		case '.':
 			if (rcp[0] == '.' && rcp[1] == '.') {
 				cp += 2;
-				return ELLIPSIS;
+				return ELLIPSIS;  // 省略，用于可变参数
 			}
-			if ((map[*rcp]&DIGIT) == 0)
+			if ((map[*rcp]&DIGIT) == 0) // 不是数字
 				return '.';
+      // 开始处理是数字情况，类似 .12345, . 之前的 0 被省略了
 			if (limit - rcp < MAXLINE) {
 				cp = rcp - 1;
 				fillbuf();
@@ -343,6 +362,10 @@ int gettok(void) {
 			token = (char *)cp;
 			tsym = fcon();
 			return FCON;
+
+    /* 开始处理字符串 */
+    // 先处理宽字符常量(example: L'杭')和宽字符串常量(example: L"杭州")
+    // ps: lcc 将宽字符作为普通的 ascii 实现
 		case 'L':
 			if (*rcp == '\'') {
 				unsigned int *s = scon(*cp, wcput, wcbuf);
@@ -352,6 +375,7 @@ int gettok(void) {
 				tval.u.c.v.u = wcbuf[0];
 				tsym = &tval;
 				return ICON;
+      // 处理宽字符串常量
 			} else if (*rcp == '"') {
 				unsigned int *s = scon(*cp, wcput, wcbuf);
 				tval.type = array(widechar, s - wcbuf, 0);
@@ -360,6 +384,7 @@ int gettok(void) {
 				return SCON;
 			} else
 				goto id;
+    // 处理字符
 		case '\'': {
 			char *s = scon(*--cp, cput, cbuf);
 			if (s - cbuf > 2)
@@ -379,6 +404,8 @@ int gettok(void) {
 			tsym = &tval;
 			return SCON;
 			}
+
+    // auto 关键字的识别
 		case 'a':
 			if (rcp[0] == 'u'
 			&&  rcp[1] == 't'
@@ -388,6 +415,8 @@ int gettok(void) {
 				return AUTO;
 			}
 			goto id;
+
+    // break 关键字的识别
 		case 'b':
 			if (rcp[0] == 'r'
 			&&  rcp[1] == 'e'
@@ -398,6 +427,7 @@ int gettok(void) {
 				return BREAK;
 			}
 			goto id;
+    // case、cahr、const、continue 等关键字的识别
 		case 'c':
 			if (rcp[0] == 'a'
 			&&  rcp[1] == 's'
@@ -434,6 +464,7 @@ int gettok(void) {
 				return CONTINUE;
 			}
 			goto id;
+    // default,double,do 等关键字的识别
 		case 'd':
 			if (rcp[0] == 'e'
 			&&  rcp[1] == 'f'
@@ -461,6 +492,8 @@ int gettok(void) {
 				return DO;
 			}
 			goto id;
+
+    // else, enum, extern 等关键字的识别
 		case 'e':
 			if (rcp[0] == 'l'
 			&&  rcp[1] == 's'
@@ -486,6 +519,7 @@ int gettok(void) {
 				return EXTERN;
 			}
 			goto id;
+    // float, for 等关键字识别
 		case 'f':
 			if (rcp[0] == 'l'
 			&&  rcp[1] == 'o'
@@ -503,6 +537,7 @@ int gettok(void) {
 				return FOR;
 			}
 			goto id;
+    // goto 等关键字的识别
 		case 'g':
 			if (rcp[0] == 'o'
 			&&  rcp[1] == 't'
@@ -512,6 +547,7 @@ int gettok(void) {
 				return GOTO;
 			}
 			goto id;
+    // long 等关键字的识别
 		case 'l':
 			if (rcp[0] == 'o'
 			&&  rcp[1] == 'n'
@@ -521,6 +557,7 @@ int gettok(void) {
 				return LONG;
 			}
 			goto id;
+    // register, return 等关键字的识别
 		case 'r':
 			if (rcp[0] == 'e'
 			&&  rcp[1] == 'g'
@@ -543,6 +580,7 @@ int gettok(void) {
 				return RETURN;
 			}
 			goto id;
+    //short, signed, sizeof, static, struct, switch 等关键字的识别
 		case 's':
 			if (rcp[0] == 'h'
 			&&  rcp[1] == 'o'
@@ -598,6 +636,7 @@ int gettok(void) {
 				return SWITCH;
 			}
 			goto id;
+    //typedef 等关键字的识别
 		case 't':
 			if (rcp[0] == 'y'
 			&&  rcp[1] == 'p'
@@ -610,6 +649,7 @@ int gettok(void) {
 				return TYPEDEF;
 			}
 			goto id;
+    //union, usigined 等关键字的识别
 		case 'u':
 			if (rcp[0] == 'n'
 			&&  rcp[1] == 'i'
@@ -631,6 +671,7 @@ int gettok(void) {
 				return UNSIGNED;
 			}
 			goto id;
+    //void, volatile 等关键字的识别
 		case 'v':
 			if (rcp[0] == 'o'
 			&&  rcp[1] == 'i'
@@ -652,6 +693,7 @@ int gettok(void) {
 				return VOLATILE;
 			}
 			goto id;
+    //while 等关键字的识别
 		case 'w':
 			if (rcp[0] == 'h'
 			&&  rcp[1] == 'i'
@@ -662,6 +704,7 @@ int gettok(void) {
 				return WHILE;
 			}
 			goto id;
+    //_typecode, _firstarg 等关键字的识别
 		case '_':
 			if (rcp[0] == '_'
 			&&  rcp[1] == 't'
@@ -699,7 +742,19 @@ int gettok(void) {
 		}
 	}
 }
+
+/**
+ * 对于 interge-constant 的处理
+ * 根据后缀来判断类型
+ *  1、U(u) 和 L(l) 都出现： unsigned long
+ *  2、只出现 U(u)： unsigned，如果溢出，则为  unsigned long
+ *  3、只出现 L(l): long, 但是当 n 大于 MAX_LONG, 那么就是 unsigned long
+ *  4、没有任何后缀:  longtype, 如果溢出，则为  unsigned long
+ *  5、等等，具体的请看下面的代码
+ */
 static Symbol icon(unsigned long n, int overflow, int base) {
+
+  // 确定 n 的类型
 	if ((*cp=='u'||*cp=='U') && (cp[1]=='l'||cp[1]=='L')
 	||  (*cp=='l'||*cp=='L') && (cp[1]=='u'||cp[1]=='U')) {
 		tval.type = unsignedlong;
@@ -724,6 +779,11 @@ static Symbol icon(unsigned long n, int overflow, int base) {
 		tval.type = unsignedtype;
 	else
 		tval.type = inttype;
+
+  /**
+   * 确定 n 的类型之后，将 n 的值保存在 tval(Symbol)中
+   * 至于这里为什么 switch 的 case 只有 INT 和 UNSIGNED，可以查看 types.case 的 118 - 132 行
+   */
 	switch (tval.type->op) {
 	case INT:
 		if (overflow || n > tval.type->u.sym->u.limits.max.i) {
@@ -743,12 +803,16 @@ static Symbol icon(unsigned long n, int overflow, int base) {
 		break;
 	default: assert(0);
 	}
-	ppnumber("integer");
-	return &tval;
+	ppnumber("integer"); // 数字预处理
+	return &tval;  // 返回终结符的地址
 }
+
+/**
+ * 数字预处理
+ */
 static void ppnumber(char *which) {
 	unsigned char *rcp = cp--;
-
+  // 跳过 E、e、-、+
 	for ( ; (map[*cp]&(DIGIT|LETTER)) || *cp == '.'; cp++)
 		if ((cp[0] == 'E' || cp[0] == 'e')
 		&&  (cp[1] == '-' || cp[1] == '+'))
@@ -758,28 +822,38 @@ static void ppnumber(char *which) {
 
 			(char*)cp-token, which);
 }
+
+/**
+ * 处理 . e E 的后缀
+ * 根据后缀来判断类型：
+ *  1、f 或者 F： float
+ *  2、l 或者 L: long double
+ *  3、没有后缀： double
+ */
 static Symbol fcon(void) {
 	if (*cp == '.')
 		do
 			cp++;
 		while (map[*cp]&DIGIT);
+
+  // 类似 1e-2 = 1 * 10^(12)
 	if (*cp == 'e' || *cp == 'E') {
-		if (*++cp == '-' || *cp == '+')
+		if (*++cp == '-' || *cp == '+')  // 前面先做了自加，所以后面不需要自加
 			cp++;
-		if (map[*cp]&DIGIT)
+		if (map[*cp]&DIGIT)  //判断 e 或者 E 之后的第一位是否为数字
 			do
 				cp++;
 			while (map[*cp]&DIGIT);
 		else
-			error("invalid floating constant `%S'\n", token,
-				(char*)cp - token);
+			error("invalid floating constant `%S'\n", token,(char*)cp - token);
 	}
 
 	errno = 0;
 	tval.u.c.v.d = strtod(token, NULL);
 	if (errno == ERANGE)
-		warning("overflow in floating constant `%S'\n", token,
-			(char*)cp - token);
+		warning("overflow in floating constant `%S'\n", token,(char*)cp - token);
+
+  // 根据后缀判断 n 的类型
 	if (*cp == 'f' || *cp == 'F') {
 		++cp;
 		if (tval.u.c.v.d > floattype->u.sym->u.limits.max.d)
@@ -799,6 +873,11 @@ static Symbol fcon(void) {
 	return &tval;
 }
 
+/*
+ * 将字符放入对应的缓存中
+ * param c: 字符对应的 ascii
+ * param cl: buffer
+ */
 static void *cput(int c, void *cl) {
 	char *s = cl;
 
@@ -808,6 +887,9 @@ static void *cput(int c, void *cl) {
 	return s;
 }
 
+/**
+ * 与 cput 方法类似
+ */
 static void *wcput(int c, void *cl) {
 	unsigned int *s = cl;
 
@@ -815,15 +897,19 @@ static void *wcput(int c, void *cl) {
 	return s;
 }
 
+/**
+ * 处理字符串
+ * param q： \' 或者 “ 的 ascii码
+ * 根据 q 来判读是字符还是字符串，最后读到到字符保存到 cl 中
+ */
 static void *scon(int q, void *put(int c, void *cl), void *cl) {
 	int n = 0, nbad = 0;
-
 	do {
 		cp++;
-		while (*cp != q) {
+		while (*cp != q) { // 判断本次读取是否结束
 			int c;
-			if (map[*cp]&NEWLINE) {
-				if (cp < limit)
+			if (map[*cp]&NEWLINE) {  // 判断是否读到换行符
+				if (cp < limit)   //
 					break;
 				cp++;
 				nextline();
@@ -832,12 +918,13 @@ static void *scon(int q, void *put(int c, void *cl), void *cl) {
 				continue;
 			}
 			c = *cp++;
-			if (c == '\\') {
+			if (c == '\\') {  // c语言中 \\ 跟一个换行符表示换行
 				if (map[*cp]&NEWLINE) {
-					if (cp++ < limit)
+					if (cp++ < limit) // 这里的换行，可能被预处理处理掉了，所以继续 continue
 						continue;
 					nextline();
 				}
+        // 不是换行时的处理
 				if (limit - cp < MAXTOKEN)
 					fillbuf();
 				c = backslash(q);
@@ -857,8 +944,9 @@ static void *scon(int q, void *put(int c, void *cl), void *cl) {
 				cp++;
 		}
 	} while (q == '"' && getchr() == '"');
+  // 字符串读取完成，将 \0 加入到字符串末尾
 	cl = put(0, cl);
-	if (n >= BUFSIZE)
+	if (n >= BUFSIZE) // 超长字符串 > 4096
 		error("%s literal too long\n", q == '"' ? "string" : "character");
 	if (Aflag >= 2 && q == '"' && n > 509)
 		warning("more than 509 characters in a string literal\n");
@@ -867,14 +955,16 @@ static void *scon(int q, void *put(int c, void *cl), void *cl) {
 			q == '"' ? "string" : "character");
 	return cl;
 }
+
 int getchr(void) {
 	for (;;) {
-		while (map[*cp]&BLANK)
+		while (map[*cp]&BLANK) // 跳过空格
 			cp++;
-		if (!(map[*cp]&NEWLINE))
+		if (!(map[*cp]&NEWLINE)) //不是换行符
 			return *cp;
+    // 当前字符属于换行符
 		cp++;
-		nextline();
+		nextline();  // 读取一行
 		if (cp == limit)
 			return EOI;
 	}
@@ -891,6 +981,7 @@ static int backslash(int q) {
 	case 't': return '\t';
 	case 'v': return '\v';
 	case '\'': case '"': case '\\': case '\?': break;
+  // \x utf-8 编码的字符
 	case 'x': {
 		int overflow = 0;
 		if ((map[*cp]&(DIGIT|HEX)) == 0) {
@@ -902,6 +993,7 @@ static int backslash(int q) {
 				cp++;
 			return 0;
 		}
+
 		for (c = 0; map[*cp]&(DIGIT|HEX); cp++) {
 			if (c >> (8*widechar->size - 4))
 				overflow = 1;
@@ -914,6 +1006,7 @@ static int backslash(int q) {
 			warning("overflow in hexadecimal escape sequence\n");
 		return c&ones(8*widechar->size);
 		}
+
 	case '0': case '1': case '2': case '3':
 	case '4': case '5': case '6': case '7':
 		c = *(cp-1) - '0';

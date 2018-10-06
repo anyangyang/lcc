@@ -1,5 +1,67 @@
 #include "c.h"
 
+/**
+ * 表达式分析的篇幅非常长，也是编译器前端最核心的内容
+ * 为了能够更好的理解表达式分析的代码，提出几个例子，来验证 lcc 表达式分析的过程
+ * 1、a = a + b
+ * 2、a > 3 ? 0 : 1
+ * 3、a = ++b
+ * 4、a = b++
+ * 5、a = a + b * 3
+ */
+
+
+/**
+	expr              =>   assignment-expr { , assignment-expr }
+
+	asgn-expr         =>   cond-expr | unary-expr assign-operator asgn-expr
+
+	assign-operator   => = | += | -+ | *= | /= | %= | <<= | >>= | &= | ^= | |=
+
+	cond-expr         => binary-expr [ ? expr : cond-expr ]
+
+	binary-expr       => unary-expr { binay-operator unary-expr }
+
+	binay-operator    =>    ||
+					  | &&
+					  | '|'
+					  | ^
+					  | &
+					  | ==
+					  | !=
+					  | <
+					  | >
+					  | <=
+					  | >=
+					  | <<
+					  | >>
+					  | +
+					  | -
+					  | *
+					  | /
+					  | %
+
+	unary-expr        =>    postfix-expr
+				      | unary-operator unary-expr
+				      | '(' type-name ')' unary-expr
+				      | sizeof unary-expr
+				      | sizeof '(' type-name ')'
+
+	unary-operator    =>   ++ | -- | & | * | + | - | ~ | !
+
+	postfix-expr      =>   pr{imary-expr { postfix-operator }
+
+	postfix-operator  =>   '['  expr ']'
+					 | '(' [ asgn-expr { , asgn-expr }] ')'
+					 | .identifer
+					 | ->identifier
+					 | ++
+					 | --
+
+  primary-expr   =>   identifer | const | string-literal | '(' expr ')'
+
+*/
+
 static char rcsid[] = "$Id$";
 
 static char prec[] = {
@@ -36,25 +98,48 @@ static Type super(Type ty) {
 	}
 	return ty;
 }
+
+/**
+ *
+ * experession =>
+ *            assignment-expression {, assignment-expression}
+ * ps: {} 在这里表示 {} 中的内容重复出现 0 次或者大于 0 次
+ */
 Tree expr(int tok) {
 	static char stop[] = { IF, ID, '}', 0 };
-	Tree p = expr1(0);
+	Tree p = expr1(0);  // expr1 解析 assignment-expression(非终结符)
 
+	// 解析 {, assignment-expression}
 	while (t == ',') {
 		Tree q;
 		t = gettok();
 		q = pointer(expr1(0));
 		p = tree(RIGHT, q->type, root(value(p)), q);
 	}
-	if (tok)	
+	if (tok)
 		test(tok, stop);
 	return p;
 }
+
+/**
+ * 表达式分析的入口
+ */
 Tree expr0(int tok) {
-	return root(expr(tok));
+	return root(expr(tok));  // root() 定义在 tree.c 文件中
 }
+
+/**
+ * 赋值表达式的解析入口
+ * assignment-expression =>
+ *                    conditional-expression  （条件表达式）
+ *									| unary-expression assign-operator assiginment-expression
+ * assign-operator =>
+ *					    = | += | -+ | *+ | /= | %= | <<= | >>= | &= | ^= | |=
+ */
 Tree expr1(int tok) {
 	static char stop[] = { IF, ID, 0 };
+
+	// 分析 conditional-expression （条件表达式）和 unary-expression （前缀表达式）
 	Tree p = expr2();
 
 	if (t == '='
@@ -70,22 +155,28 @@ Tree expr1(int tok) {
 				p = incr(op, p, expr1(0));
 			}
 	}
-	if (tok)	
+	if (tok)
 		test(tok, stop);
 	return p;
 }
 Tree incr(int op, Tree v, Tree e) {
 	return asgntree(ASGN, v, (*optree[op])(oper[op], v, e));
 }
+
+/**
+ * 条件表达式和前缀表达式的分析入口
+ *  conditional-expression =>
+ *                   binary-express [ ? expression : conditional-expression ]
+ * ps: []  表示 [] 中的可以出现或者不出现
+ */
 static Tree expr2(void) {
-	Tree p = expr3(4);
+	Tree p = expr3(4); // 解析 binary-express 二元操作符，这里的 4 表示优先级
 
 	if (t == '?') {
 		Tree l, r;
 		Coordinate pts[2];
 		if (Aflag > 1 && isfunc(p->type))
-			warning("%s used in a conditional expression\n",
-				funcname(p));
+			warning("%s used in a conditional expression\n",funcname(p));
 		p = pointer(p);
 		t = gettok();
 		pts[0] = src;
@@ -111,42 +202,75 @@ Tree value(Tree p) {
 			consttree(0, inttype));
 	return p;
 }
+
+/**
+ * 二元操作的表达式的分析入口，也可以是赋值表达式的第二个产生式的分析入口
+ *     binary-expression =>
+ *								unary-expression { binary-operator binary-expression }
+ *		 assignment-expression =>
+ *								unary-expression assign-operator assiginment-expression
+ * 以 a + b * c 为例
+ * param k: 优先级，传入的优先级为 4
+ * 以 a + b * c 为例，这个方法每次都是先处理了 a +，b *， c:
+ */
 static Tree expr3(int k) {
 	int k1;
+	// 解析 unary-expression (前缀表达式)，当前 token 是 identifer (a), 在 primary 中解析
 	Tree p = unary();
-
+	// 解析完变量 a 之后，当前 token = '+', 根据 token.h，'+' 对应的优先级为 12
 	for (k1 = prec[t]; k1 >= k; k1--)
+		// cp 指向文件的输入缓冲区的当前字符，当前 token 还是 ‘+’，并且缓冲区首字符不为 ‘=’
 		while (prec[t] == k1 && *cp != '=') {
 			Tree r;
-			Coordinate pt;
-			int op = t;
-			t = gettok();
-			pt = src;
-			p = pointer(p);
-			if (op == ANDAND || op == OROR) {
+			Coordinate pt;  // 坐标
+			int op = t;  //代表当前操作 '+'
+			t = gettok();  // 将全局变量指向 t
+			pt = src;     // 变量 b 的坐标
+			p = pointer(p);    // 变量 a tree node
+			if (op == ANDAND || op == OROR) {  // || 和 && 的优先级分别为 4 和 5
 				r = pointer(expr3(k1));
 				if (events.points)
 					apply(events.points, &pt, &r);
 			} else
-				r = pointer(expr3(k1 + 1));
-			p = (*optree[op])(oper[op], p, r); 
+				r = pointer(expr3(k1 + 1));  // 12 +  1 = 13 (K)
+
+			// 这些内容都可以通过 token.h 进行查询 oper[] 给出通用 op，optree[] 给出了拼装成树的函数
+			p = (*optree[op])(oper[op], p, r);
 		}
 	return p;
 }
+
+/**
+ *
+ * 前缀表达式的解析入口
+ *    unary-expression  =>
+ *                   postfix-expression
+ *  							|  unary-operator unary-experession
+ *								|  '(' type-name ')' unary-expression
+ *								|  sizeof unary-experession
+ * 								|  sizeof '(' type-name ')'
+ */
 static Tree unary(void) {
 	Tree p;
 
+	// 根据 token 选择对应的产生式进行处理
 	switch (t) {
-	case '*':    t = gettok(); p = unary(); p = pointer(p);
-						  if (isptr(p->type)
-						  && (isfunc(p->type->type) || isarray(p->type->type)))
+	case '*':
+	 						 t = gettok();
+							 p = unary();
+							 p = pointer(p);
+						  if (isptr(p->type) && (isfunc(p->type->type) || isarray(p->type->type)))
 						  	p = retype(p, p->type->type);
 						  else {
 						  	if (YYnull)
 						  		p = nullcheck(p);
 						  	p = rvalue(p);
-						  } break;
-	case '&':    t = gettok(); p = unary(); if (isarray(p->type) || isfunc(p->type))
+						  }
+							break;
+	case '&':
+							t = gettok();
+							p = unary();
+							if (isarray(p->type) || isfunc(p->type))
 						  	p = retype(p, ptr(p->type));
 						  else
 						  	p = lvalue(p);
@@ -155,13 +279,20 @@ static Tree unary(void) {
 
 						  else if (isaddrop(p->op))
 						  	p->u.sym->addressed = 1;
- break;
-	case '+':    t = gettok(); p = unary(); p = pointer(p);
+ 							break;
+	case '+':
+							t = gettok();
+							p = unary();
+							p = pointer(p);
 						  if (isarith(p->type))
 						  	p = cast(p, promote(p->type));
 						  else
-						  	typeerror(ADD, p, NULL);  break;
-	case '-':    t = gettok(); p = unary(); p = pointer(p);
+						  	typeerror(ADD, p, NULL);
+							break;
+	case '-':
+							t = gettok();
+							p = unary();
+							p = pointer(p);
 						  if (isarith(p->type)) {
 						  	Type ty = promote(p->type);
 						  	p = cast(p, ty);
@@ -171,20 +302,37 @@ static Tree unary(void) {
 						  	} else
 						  		p = simplify(NEG, ty, p, NULL);
 						  } else
-						  	typeerror(SUB, p, NULL); break;
-	case '~':    t = gettok(); p = unary(); p = pointer(p);
+						  	typeerror(SUB, p, NULL);
+							break;
+	case '~':
+							t = gettok();
+							p = unary();
+							p = pointer(p);
 						  if (isint(p->type)) {
 						  	Type ty = promote(p->type);
 						  	p = simplify(BCOM, ty, cast(p, ty), NULL);
 						  } else
-						  	typeerror(BCOM, p, NULL);  break;
-	case '!':    t = gettok(); p = unary(); p = pointer(p);
+						  	typeerror(BCOM, p, NULL);
+							break;
+	case '!':
+							t = gettok();
+							p = unary();
+							p = pointer(p);
 						  if (isscalar(p->type))
 						  	p = simplify(NOT, inttype, cond(p), NULL);
 						  else
-						  	typeerror(NOT, p, NULL); break;
-	case INCR:   t = gettok(); p = unary(); p = incr(INCR, pointer(p), consttree(1, inttype)); break;
-	case DECR:   t = gettok(); p = unary(); p = incr(DECR, pointer(p), consttree(1, inttype)); break;
+						  	typeerror(NOT, p, NULL);
+							break;
+	case INCR:
+							t = gettok();
+							p = unary();
+							p = incr(INCR, pointer(p), consttree(1, inttype));
+							break;
+	case DECR:
+							t = gettok();
+							p = unary();
+							p = incr(DECR, pointer(p), consttree(1, inttype));
+							break;
 	case TYPECODE: case SIZEOF: { int op = t;
 				      Type ty;
 				      p = NULL;
@@ -260,6 +408,25 @@ static Tree unary(void) {
 	return p;
 }
 
+/**
+ * 后缀表达式的解析入口
+ *   postfix-expression =>
+ *						primary-expression { postfix-operator }
+ *
+ *   primary-expression =>
+ * 						ID
+ *          | CONS
+ *   				| string-literal
+ *   				| '(' expression ')'
+ *
+ *   postfix-operator  =>
+ *						'[' expression ']'
+ *  				| '(' [ assignment-expression {, assignment-expression} ]')'
+ *					| .ID
+ *					| ->ID
+ *					| ++
+ * 					| --
+ */
 static Tree postfix(Tree p) {
 	for (;;)
 		switch (t) {
@@ -336,11 +503,23 @@ static Tree postfix(Tree p) {
 			return p;
 		}
 }
+
+/**
+ * 常量、变量、字符串等等解析入口
+ * primary-expression =>
+ * 						ID
+ *          | CONS
+ *   				| string-literal
+ *   				| '(' expression ')'
+ */
 static Tree primary(void) {
 	Tree p;
 
 	assert(t != '(');
 	switch (t) {
+	/**
+	 * 先处理常量
+	 */
 	case ICON:
 	case FCON: p = tree(mkop(CNST,tsym->type), tsym->type, NULL, NULL);
 		   p->u.v = tsym->u.c.v;
@@ -350,16 +529,22 @@ static Tree primary(void) {
 		   else
 		   	tsym->u.c.v.p = memcpy(allocate((tsym->type->size/widechar->size)*sizeof (int), PERM),
 		   		tsym->u.c.v.p, (tsym->type->size/widechar->size)*sizeof (int));
-		   tsym = constant(tsym->type, tsym->u.c.v); 
+		   tsym = constant(tsym->type, tsym->u.c.v);
 		   if (tsym->u.c.loc == NULL)
 		   	tsym->u.c.loc = genident(STATIC, tsym->type, GLOBAL);
 		   p = idtree(tsym->u.c.loc); break;
+
+	/**
+	 * 处理变量
+	 */
 	case ID:   if (tsym == NULL)
 		   	{
+				 // symbol.c, 在 ID level 层次的符号表中安装一个 Symbol， symbol 在 PERM 这个分配区分配内存空间
 				Symbol p = install(token, &identifiers, level, PERM);
+				// src token.c 中获取
 				p->src = src;
 				if (getchr() == '(') {
-					Symbol q = lookup(token, externals);
+					Symbol q = lookup(token, externals);  // 在 externals symbol-Table 中搜索 token
 					p->type = func(inttype, NULL, 1);
 					p->sclass = EXTERN;
 					if (Aflag >= 1)
@@ -413,6 +598,10 @@ static Tree primary(void) {
 	t = gettok();
 	return p;
 }
+
+/**
+ * 变量 tree
+ */
 Tree idtree(Symbol p) {
 	int op;
 	Tree e;
@@ -461,6 +650,7 @@ Tree lvalue(Tree p) {
 		warning("`%t' used as an lvalue\n", p->type);
 	return p->kids[0];
 }
+
 Tree retype(Tree p, Type ty) {
 	Tree q;
 
@@ -510,6 +700,10 @@ Type binary(Type xty, Type yty) {
 	return inttype;
 #undef xx
 }
+
+/**
+ *
+ */
 Tree pointer(Tree p) {
 	if (isarray(p->type))
 		/* assert(p->op != RIGHT || p->u.sym == NULL), */
